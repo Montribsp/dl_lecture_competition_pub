@@ -2,6 +2,7 @@ import re
 import random
 import time
 from statistics import mode
+from datetime import datetime, timedelta, timezone
 
 from PIL import Image
 import numpy as np
@@ -131,7 +132,7 @@ class VQADataset(torch.utils.data.Dataset):
         image = Image.open(f"{self.image_dir}/{self.df['image'][idx]}")
         image = self.transform(image)
         question = np.zeros(len(self.idx2question) + 1)  # 未知語用の要素を追加
-        question_words = self.df["question"][idx].split(" ")
+        question_words = process_text(self.df["question"][idx]).split(" ")
         for word in question_words:
             try:
                 question[self.question2idx[word]] = 1  # one-hot表現に変換
@@ -332,7 +333,8 @@ def train(model, dataloader, optimizer, criterion, device):
         total_loss += loss.item()
         total_acc += VQA_criterion(pred.argmax(1), answers)  # VQA accuracy
         simple_acc += (pred.argmax(1) == mode_answer).float().mean().item()  # simple accuracy
-
+        
+    
     return total_loss / len(dataloader), total_acc / len(dataloader), simple_acc / len(dataloader), time.time() - start
 
 
@@ -362,6 +364,10 @@ def main():
     # deviceの設定
     set_seed(42)
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(device)
+    JST = timezone(timedelta(hours=+9), 'JST')
+
+    datetime.now(JST)
 
     # dataloader / model
     transform = transforms.Compose([
@@ -384,12 +390,22 @@ def main():
 
     # train model
     for epoch in range(num_epoch):
+        print(f"start epoch {epoch + 1}/{num_epoch}")
         train_loss, train_acc, train_simple_acc, train_time = train(model, train_loader, optimizer, criterion, device)
+        torch.save(
+            {
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+            },
+            "model_checkpoint.tar",
+            )
         print(f"【{epoch + 1}/{num_epoch}】\n"
               f"train time: {train_time:.2f} [s]\n"
               f"train loss: {train_loss:.4f}\n"
               f"train acc: {train_acc:.4f}\n"
-              f"train simple acc: {train_simple_acc:.4f}")
+              f"train simple acc: {train_simple_acc:.4f}\n"
+              f"datetime: {datetime.now(JST)}")
 
     # 提出用ファイルの作成
     model.eval()
