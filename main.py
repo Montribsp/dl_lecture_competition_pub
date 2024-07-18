@@ -429,8 +429,11 @@ def main():
     test_dataset = VQADataset(df_path="./data/valid.json", image_dir="./data/valid", transform=transform, answer=False)
     test_dataset.update_dict(train_dataset)
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=128, shuffle=True,collate_fn=collate_fn)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False,collate_fn=collate_fn)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=128, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False)
+
+    # train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=128, shuffle=True,collate_fn=collate_fn)
+    # test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False,collate_fn=collate_fn)
 
     #vocab_size = len(vocab)
     #embedding_dim = 300  # 埋め込み次元数を設定
