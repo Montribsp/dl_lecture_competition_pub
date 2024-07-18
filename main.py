@@ -11,6 +11,10 @@ import torch
 import torch.nn as nn
 import torchvision
 from torchvision import transforms
+import torchtext
+from torchtext.vocab import build_vocab_from_iterator
+from torchtext.data.utils import get_tokenizer
+
 
 
 def set_seed(seed):
@@ -61,6 +65,43 @@ def process_text(text):
 
     return text
 
+# tokenizer = get_tokenizer("basic_english")
+
+
+# def get_tokens(data_iter):
+#     tokens = []
+#     for text in data_iter:
+#         tokens.append(tokenizer(process_text(text)))
+#     return tokens
+
+# train_iter = pandas.read_json("./data/train.json")["question"].tolist()
+
+# # トークンのリストを取得
+# tokens = get_tokens(train_iter)
+
+# # 語彙を構築
+# vocab = build_vocab_from_iterator(tokens, specials=["<unk>"])
+# vocab.set_default_index(vocab["<unk>"])
+
+# def collate_fn(batch):
+#     images, questions, answers, mode_answers = zip(*batch)
+
+#     # 画像はそのままスタック
+#     images = torch.stack(images)
+
+#     # 質問をパディング
+#     question_lengths = [len(question) for question in questions]
+#     max_length = max(question_lengths)
+#     padded_questions = torch.zeros(len(questions), max_length, dtype=torch.long)
+#     for i, question in enumerate(questions):
+#         end = question_lengths[i]
+#         padded_questions[i, :end] = question
+
+#     # 回答とmode_answersもそのままスタック
+#     answers = torch.stack(answers)
+#     mode_answers = torch.tensor(mode_answers)
+
+#     return images, padded_questions, answers, mode_answers
 
 # 1. データローダーの作成
 class VQADataset(torch.utils.data.Dataset):
@@ -131,6 +172,8 @@ class VQADataset(torch.utils.data.Dataset):
         """
         image = Image.open(f"{self.image_dir}/{self.df['image'][idx]}")
         image = self.transform(image)
+        # question_tokens = tokenizer(process_text(self.df["question"][idx]))
+        # question_indices = [vocab[token] for token in question_tokens]
         question = np.zeros(len(self.idx2question) + 1)  # 未知語用の要素を追加
         question_words = process_text(self.df["question"][idx]).split(" ")
         for word in question_words:
@@ -146,7 +189,7 @@ class VQADataset(torch.utils.data.Dataset):
             return image, torch.Tensor(question), torch.Tensor(answers), int(mode_answer_idx)
 
         else:
-            return image, torch.Tensor(question)
+            return image, torch.Tensor(question_indices)
 
     def __len__(self):
         return len(self.df)
@@ -289,10 +332,12 @@ def ResNet50():
 
 
 class VQAModel(nn.Module):
-    def __init__(self, vocab_size: int, n_answer: int):
+    def __init__(self, vocab_size: int,embedding_dim, n_answer: int):
         super().__init__()
         self.resnet = ResNet18()
-        self.text_encoder = nn.Linear(vocab_size, 512)
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        #self.text_encoder = nn.Linear(vocab_size, 512)
+        self.text_encoder = nn.LSTM(embedding_dim, 512, batch_first=True)
 
         self.fc = nn.Sequential(
             nn.Linear(1024, 512),
@@ -302,7 +347,11 @@ class VQAModel(nn.Module):
 
     def forward(self, image, question):
         image_feature = self.resnet(image)  # 画像の特徴量
+        #question_embedded = self.embedding(question)
         question_feature = self.text_encoder(question)  # テキストの特徴量
+        #_, (question_feature, _) = self.text_encoder(question_embedded)  # テキストの特徴量
+
+        #question_feature = question_feature.squeeze(0)  # バッチサイズ1の場合の次元削減
 
         x = torch.cat([image_feature, question_feature], dim=1)
         x = self.fc(x)
@@ -368,7 +417,9 @@ def main():
     JST = timezone(timedelta(hours=+9), 'JST')
 
     datetime.now(JST)
-
+    
+    # データセットの質問文のリストを取得
+    
     # dataloader / model
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -378,12 +429,15 @@ def main():
     test_dataset = VQADataset(df_path="./data/valid.json", image_dir="./data/valid", transform=transform, answer=False)
     test_dataset.update_dict(train_dataset)
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=128, shuffle=True)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=128, shuffle=True,collate_fn=collate_fn)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False,collate_fn=collate_fn)
 
+    #vocab_size = len(vocab)
+    #embedding_dim = 300  # 埋め込み次元数を設定
+    #model = VQAModel(vocab_size=vocab_size, embedding_dim=embedding_dim, n_answer=len(train_dataset.answer2idx)).to(device)
     model = VQAModel(vocab_size=len(train_dataset.question2idx)+1, n_answer=len(train_dataset.answer2idx)).to(device)
 
-    # optimizer / criterion
+    # optimizer / criterionA
     num_epoch = 20
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
