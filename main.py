@@ -189,7 +189,7 @@ class VQADataset(torch.utils.data.Dataset):
             return image, torch.Tensor(question), torch.Tensor(answers), int(mode_answer_idx)
 
         else:
-            return image, torch.Tensor(question_indices)
+            return image, torch.Tensor(question)
 
     def __len__(self):
         return len(self.df)
